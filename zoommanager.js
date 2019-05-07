@@ -6,486 +6,278 @@ Classes defined here:
  - @ref ZoomManager : Helper to be used by dezoomers
 */
 
-/**
-User interface management, interaction with HTML
-@class UI
-*/
-var UI = {};
-UI.canvas = document.getElementById("rendering-canvas");
-UI.dezoomers = document.getElementById("dezoomers");
+export default class ZoomManager
+{
+    /**
+    Call callback with the contents of the page at url
+    @param {string} url
+    @param {type:String} options
+    @param {fileCallback} callback - callback to call when the file is loaded
+    */
+    static async getFile(url, params) {
+        return await ZoomManager.downloader.getFile(url, params)
+    }
+    
+    /**
+    Return the absolute path, given a relative path and a base
 
-/**
-Adjusts the size of the image, so that is fits page width or page height
-**/
-UI.changeSize = function () {
-	var width = UI.canvas.width, height = UI.canvas.height;
-	switch (this.fit) {
-		case "width":
-			this.fit = "height";
-			UI.canvas.style.height = window.innerHeight + "px";
-			UI.canvas.style.width = window.innerHeight / height * width + "px";
-			break;
-		case "height":
-			this.fit = "none";
-			UI.canvas.style.width = width + "px";
-			UI.canvas.style.height = height + "px";
-			break;
-		default:
-			this.fit = "width";
-			UI.canvas.style.width = window.innerWidth + "px";
-			UI.canvas.style.height = window.innerWidth / width * height + "px";
-	}
-};
+    @param {string} path - the path, such as "path/to/other/file.jpg"
+    @param {string} base - the base URL, such as "http://test.com/path/to/first/file.html"
+    @return {string} resolved - the resolved path, such as "http://test.com/path/to/first/path/to/other/file.jpg"
+    */
+    static resolveRelative(path, base) {
+        // absolute URL
+        if (path.match(/\w*:\/\//)) {
+            return path;
+        }
+        // Protocol-relative URL
+        if (path.indexOf("//") === 0) {
+            var protocol = base.match(/\w+:/) || ["http:"];
+            return protocol[0] + path;
+        }
+        // Upper directory
+        if (path.indexOf("../") === 0) {
+            return resolveRelative(path.slice(3), base.replace(/\/[^\/]*$/, ''));
+        }
+        // Relative to the root
+        if (path[0] === '/') {
+            var match = base.match(/(\w*:\/\/)?[^\/]*\//) || [base];
+            return match[0] + path.slice(1);
+        }
+        //relative to the current directory
+        return base.replace(/\/[^\/]*$/, "") + '/' + path;
+    }
+    
+    static addDezoomer(dezoomer) {
+        ZoomManager.dezoomersList.push(dezoomer);
+    }
+    
+    /**
+     * Start the dezoomifying process
+     */
+    static async open(url) {
+        ZoomManager.init();
+        if (url.indexOf("http") !== 0) {
+            throw new Error("You must provide a valid HTTP URL.");
+        }
+        
+        if (typeof ZoomManager.dezoomer.findFile === "function") {
+            let filePath = await ZoomManager.dezoomer.findFile(url)
+            
+            ZoomManager.updateProgress(0, "Found image. Trying to open it...")
+            ZoomManager.updateProgress(0, "The dezoomer is trying to locate the zoomable image...")
+            ZoomManager.dezoomer.open(ZoomManager.resolveRelative(filePath, url))
+        } else {
+            ZoomManager.updateProgress(0, "Launched dezoomer...")
+            await ZoomManager.dezoomer.open(url)
+        }
+    }
+    
+    /**
+     * Initialize the ZoomManager
+     */
+    static init() {
+        ZoomManager.status = {
+            error: false,
+            loaded: 0,
+            totalTiles: 1
+        };
+        ZoomManager.imageManager.reset();
+    }
+    
+    /**
+     * Set the active dezoomer
+     */
+    static setDezoomer(dezoomer) {
+        ZoomManager.dezoomer = dezoomer;
+    }
+    
+    /**
+     * Tells that we are ready
+    */
+    static readyToRender(data) {
+        data.nbrTilesX = data.nbrTilesX || Math.ceil(data.width / data.tileSize);
+        data.nbrTilesY = data.nbrTilesY|| Math.ceil(data.height / data.tileSize);
+        data.totalTiles = data.totalTiles || data.nbrTilesX*data.nbrTilesY;
+        data.zoomFactor = data.zoomFactor || 2;
+        data.baseZoomLevel = data.baseZoomLevel || 0;
 
-/**
-Sets the width and height of the canvas
+        ZoomManager.status.totalTiles = data.totalTiles;
+        ZoomManager.data = data;
+        ZoomManager.imageManager.setupRendering(data);
 
-@param {Object} data : Image source information, containing width and height of the image.
-**/
-UI.setupRendering = function (data) {
-	document.getElementById("status").className = "loading";
-	UI.canvas.width = data.width;
-	UI.canvas.height = data.height;
-	UI.canvas.onclick = UI.changeSize;
-	UI.ctx = UI.canvas.getContext("2d");
-	UI.changeSize();
-};
+        ZoomManager.updateProgress(0, "Preparing tiles load...");
+        ZoomManager.startTimer();
 
-/**
-Draw a tile on the canvas, at the given position.
+        var render = ZoomManager.dezoomer.render || ZoomManager.defaultRender;
+        setTimeout(render, 1, data); //Give time to refresh the UI, in case render would take a long time
+    }
+    
+    /**
+     * Start listening for tile loads
+     *
+     * @return {Number} The timer ID
+     */
+    static startTimer() {
+        var wasLoaded = 0; // Number of tiles that were loaded last time we watched
+        var timer = setInterval(async () => {
+            /*Update the User Interface each 500ms, and not in addTile, because it would
+            slow down the all process to update the UI too often.*/
+            var loaded = ZoomManager.status.loaded, total = ZoomManager.status.totalTiles;
+            if (loaded !== wasLoaded) {
+                // Update progress if new tiles were loaded
+                ZoomManager.updateProgress(100 * loaded / total, "Loading the tiles...");
+                wasLoaded = loaded;
+            }
+            if (loaded >= total) {
+                clearInterval(timer);
+                let imageBlob = await ZoomManager.imageManager.getImageBlob()
+                ZoomManager.ui.loadEnd(imageBlob);
+            }
+        }, 500);
+        return timer;
+    }
+    
+    static loadEnd() {
+        // UI.loadEnd();
+    }
+    
+    static updateProgress(progress, msg) {
+        ZoomManager.ui.updateProgress(progress, msg);
+    }
+    
+    static defaultRender(data) {
+        var zoom = data.maxZoomLevel || ZoomManager.findMaxZoom(data);
+        var x=0, y=0;
 
-@param {Image} tile : The tile image
-@param {Number} x position
-@param {Number} y position
-*/
-UI.drawTile = function(tileImg, x, y) {
-	UI.ctx.drawImage(tileImg, x, y);
-};
+        function nextTile() {
+            var url = ZoomManager.dezoomer.getTileURL(x,y,zoom,data);
+            if (data.origin) {
+                url = ZoomManager.resolveRelative(url, data.origin);
+            }
+            ZoomManager.addTile(url, x*data.tileSize, y*data.tileSize);
 
-/**
-Display an error in the UI.
+            x++;
+            if (x >= data.nbrTilesX) {x = 0; y++;}
+            if (y < data.nbrTilesY) ZoomManager.nextTick(nextTile);
+        }
 
-@param {String} errmsg The error message
-*/
-UI.error = function(errmsg) {
-	if (errmsg) {
-		document.getElementById("errormsg").textContent = errmsg;
-	}
-	document.getElementById("percent").textContent = "";
-	document.getElementById("error").removeAttribute("hidden");
-	var error_img = "error.svg?error=" + encodeURIComponent(errmsg);
-	document.getElementById("error-img").src = error_img;
-};
+        nextTile();
+    }
 
-window.onerror = function(errmsg, source, lineno) {
-	UI.error(errmsg + '\n\n(' + source + ':' + lineno + ')');
+    /**
+     * @function nextTick
+     * Call a function, but not immediatly
+     * @param {Function} f - the function to call
+     */
+    static nextTick(f) {
+    	return setTimeout(f, 3)
+    }
+    
+    /**
+     * Request a tile from the server
+     * 
+     * @param {String} url - tile URL
+     * @param {Number} x - position in px
+     * @param {Number} y - position in px
+     * @param {Number} [n=0] - Number of time the tile has already been requested
+     */
+    static async addTile(url, x, y, ntries) {
+        //Request a tile from the server and display it once it loaded
+        ntries = ntries | 0; // Number of time the tile has already been requested
+        
+        for (let i = 0; i < 5; i++) {
+            try {
+                let image = null
+                if (ZoomManager.imageLoadWithDownloader) {
+                    // load from downloader
+                    image = await ZoomManager.downloader.loadImage(url)
+                }
+                else {
+                    image = await ZoomManager.imageManager.loadImage(url)
+                }
+                
+                ZoomManager.imageManager.drawTile(img, x, y)
+                ZoomManager.status.loaded++;
+                break
+            }
+            catch (e) {
+                await ZoomManager.asyncTimer(Math.pow(10*Math.random(), ntries))
+            }
+        }
+        
+        ZoomManager.error(`Unable to load tile.\nCheck that your internet connection is working and that you can access this url:\n${url}`)
+        
+        var img = new Image;
+        img.addEventListener("load", function () {
+            ZoomManager.imageManager.drawTile(img, x, y)
+            ZoomManager.status.loaded++;
+        });
+        img.addEventListener('error', function(evt) {
+            if (ntries < 5) {
+                // Maybe the server is just busy right now, or we are running on a bad connection
+                nextTime = Math.pow(10*Math.random(), ntries);
+                setTimeout(addTile, nextTime, url, x, y, ntries+1);
+            } else {
+                
+            }
+        })
+        
+        if (ZoomManager.proxy_tiles) {
+            url = `${ZoomManager.proxy_tiles}?url=${encodeURIComponent(url)}`
+            if (ZoomManager.cookies.length > 0) {
+                url = `${url}&cookies=${encodeURIComponent(ZoomManager.cookies)}`
+            }
+            img.crossOrigin = "anonymous"
+        }
+        img.src = url
+    }
+    
+    static async asyncTimer(timeout) {
+        return new Promise((resolve, reject) => {
+            setTimeout(() => {
+                resolve()
+            }, timeout);
+        })
+    }
+    
+    /**
+     * Returns the maximum zoom level, knowing the image size, the tile size, and the multiplying factor between two consecutive zoom levels
+     * @param {{width:number, height:number}} metadata
+     * @return {number} maxzoom - the maximal zoom level
+     */
+    static findMaxZoom(data) {
+        //For all zoom levels:
+        //size / zoomFactor^(maxZoomLevel - zoomlevel) = numTilesAtThisZoomLevel * tileSize
+        //For the baseZoomLevel (0 for zoomify), numTilesAtThisZoomLevel=1
+        var size = Math.max(data.width, data.height);
+        return Math.ceil(Math.log(size/data.tileSize) / Math.log(data.zoomFactor)) + (data.baseZoomLevel||0);
+    }
+
+    /**
+     * @brief Signal an error
+     * 
+     * @param {String} errmsg The error text
+     * @throws {Error} err The given error
+     */
+    static error(errmsg) {
+        // Display only the first error, until the ZoomManager in reinitialized
+        if (!ZoomManager.status.error) {
+            ZoomManager.status.error = true;
+            ZoomManager.ui.error(errmsg);
+            throw new Error(errmsg);
+        }
+    }
+    
+    static reset() {
+        // This variable will store cookies set by previous requests
+        ZoomManager.setDezoomer(ZoomManager.dezoomersList["Select automatically"]);
+    }
 }
 
-/**
-Reset the UI to the initial state.
-*/
-UI.reset = function() {
-	document.getElementById("error").setAttribute("hidden", "hidden");
-	document.getElementById("status").className = "";
-	UI.canvas.width = UI.canvas.height = 0;
-};
-
-/**
-Update the state of the progress bar.
-
-@param {Number} percentage (between 0 and 100)
-@param {String} description current state description
-*/
-UI.updateProgress = function (percent, text) {
-	percent = parseInt(percent);
-	document.getElementById("percent").innerHTML = text + ' (' + percent + "%)";
-	document.getElementById("progressbar").style.width = percent + "%";
-	document.getElementById("progressbar").setAttribute("aria-valuenow", percent);
-	document.title = "(" + percent + "%) Dezoomify";
-};
-
-/**
-Update UI after the image has loaded.
-*/
-UI.loadEnd = function() {
-	var status = document.getElementById("status");
-	var a = document.createElement("a");
-	a.download = "dezoomify-result.jpg";
-	a.href = "#";
-	a.textContent = "Converting image...";
-	a.className = "button";
-	try {
-		// Try to export the image
-		UI.canvas.toBlob(function(blob){
-			var url = URL.createObjectURL(blob);
-			a.href = url;
-			a.textContent = "Save image";
-		}, "image/jpeg", 0.95);
-		status.className = "download";
-		status.appendChild(a);
-	} catch(e) {
-		status.className = "finished";
-	}
-};
-
-/**
-Add a new button for a new dezoomer.
-
-@param {Object} dezoomer the dezoomer object
-*/
-UI.addDezoomer = function(dezoomer) {
-	var label = document.createElement("label")
-	var input = document.createElement("input");
-	input.type = "radio"
-	input.name = "dezoomer";
-	input.id   = "dezoomer-" + dezoomer.name;
-	label.title= dezoomer.description;
-	input.onclick = function() {
-		ZoomManager.setDezoomer(dezoomer);
-	}
-	label.appendChild(input);
-	label.appendChild(document.createTextNode(dezoomer.name));
-	UI.dezoomers.appendChild(label);
-};
-
-/**
-@brief Set the dezoomer that is currently used.
-
-@param {String} dezoomerName name of the dezoomer
-*/
-UI.setDezoomer = function(dezoomerName) {
-	document.getElementById("dezoomer-"+dezoomerName).checked = true;
-}
-
-
-/**
-Contains helper functions for dezoomers
-@class
-*/
-var ZoomManager = {};
-
-/**
-@brief Signal an error
-
-@param {String} errmsg The error text
-@throws {Error} err The given error
-*/
-ZoomManager.error = function (errmsg) {
-	// Display only the first error, until the ZoomManager in reinitialized
-	if (!ZoomManager.status.error) {
-		ZoomManager.status.error = true;
-		UI.error(errmsg);
-		throw new Error(errmsg);
-	}
-};
-
-ZoomManager.updateProgress = function (progress, msg) {
-	UI.updateProgress(progress, msg);
-};
-ZoomManager.loadEnd = function () {
-	UI.loadEnd();
-}
-
-/**
-Start listening for tile loads
-
-@return {Number} The timer ID
-*/
-ZoomManager.startTimer = function () {
-	var wasLoaded = 0; // Number of tiles that were loaded last time we watched
-	var timer = setInterval(function () {
-		/*Update the User Interface each 500ms, and not in addTile, because it would
-		slow down the all process to update the UI too often.*/
-		var loaded = ZoomManager.status.loaded, total = ZoomManager.status.totalTiles;
-		if (loaded !== wasLoaded) {
-			// Update progress if new tiles were loaded
-			ZoomManager.updateProgress(100 * loaded / total, "Loading the tiles...");
-			wasLoaded = loaded;
-		}
-		if (loaded >= total) {
-			clearInterval(timer);
-			ZoomManager.loadEnd();
-		}
-	}, 500);
-	return timer;
-};
-
-
-/**
-Tells that we are ready
-*/
-ZoomManager.readyToRender = function(data) {
-
-	data.nbrTilesX = data.nbrTilesX || Math.ceil(data.width / data.tileSize);
-	data.nbrTilesY = data.nbrTilesY|| Math.ceil(data.height / data.tileSize);
-	data.totalTiles = data.totalTiles || data.nbrTilesX*data.nbrTilesY;
-	data.zoomFactor = data.zoomFactor || 2;
-	data.baseZoomLevel = data.baseZoomLevel || 0;
-
-	ZoomManager.status.totalTiles = data.totalTiles;
-	ZoomManager.data = data;
-	UI.setupRendering(data);
-
-	ZoomManager.updateProgress(0, "Preparing tiles load...");
-	ZoomManager.startTimer();
-
-	var render = ZoomManager.dezoomer.render || ZoomManager.defaultRender;
-	setTimeout(render, 1, data); //Give time to refresh the UI, in case render would take a long time
-};
-
-ZoomManager.defaultRender = function (data) {
-	var zoom = data.maxZoomLevel || ZoomManager.findMaxZoom(data);
-	var x=0, y=0;
-
-	function nextTile() {
-		var url = ZoomManager.dezoomer.getTileURL(x,y,zoom,data);
-		if (data.origin) url = ZoomManager.resolveRelative(url, data.origin);
-		ZoomManager.addTile(url, x*data.tileSize, y*data.tileSize);
-
-		x++;
-		if (x >= data.nbrTilesX) {x = 0; y++;}
-		if (y < data.nbrTilesY) ZoomManager.nextTick(nextTile);
-	}
-
-	nextTile();
-};
-
-/**
-@function nextTick
-Call a function, but not immediatly
-@param {Function} f - the function to call
-*/
-ZoomManager.nextTick = function(f) {
-	return setTimeout(f, 3);
-};
-
-/**
-Request a tile from the server
-
-@param {String} url - tile URL
-@param {Number} x - position in px
-@param {Number} y - position in px
-@param {Number} [n=0] - Number of time the tile has already been requested
-*/
-ZoomManager.addTile = function addTile(url, x, y, ntries) {
-	//Request a tile from the server and display it once it loaded
-	ntries = ntries | 0; // Number of time the tile has already been requested
-	var img = new Image;
-	img.addEventListener("load", function () {
-		UI.drawTile(img, x, y);
-		ZoomManager.status.loaded ++;
-	});
-	img.addEventListener("error", function(evt) {
-		if (ntries < 5) {
-			// Maybe the server is just busy right now, or we are running on a bad connection
-			nextTime = Math.pow(10*Math.random(), ntries);
-			setTimeout(addTile, nextTime, url, x, y, ntries+1);
-		} else {
-			ZoomManager.error("Unable to load tile.\n" +
-												"Check that your internet connection is working " +
-												"and that you can access this url:\n" + url);
-		}
-	});
-	if (ZoomManager.proxy_tiles) {
-		url = ZoomManager.proxy_tiles + "?url=" + encodeURIComponent(url);
-		if (ZoomManager.cookies.length > 0) {
-			url += "&cookies=" + encodeURIComponent(ZoomManager.cookies);
-		}
-		img.crossOrigin = "anonymous";
-	}
-	img.src = url;
-};
-
-/**
-Start the dezoomifying process
-*/
-ZoomManager.open = function(url) {
-	ZoomManager.init();
-	if (url.indexOf("http") !== 0) {
-		throw new Error("You must provide a valid HTTP URL.");
-	}
-	if (typeof ZoomManager.dezoomer.findFile === "function") {
-		ZoomManager.dezoomer.findFile(url, function foundFile(filePath) {
-			ZoomManager.updateProgress(0, "Found image. Trying to open it...");
-			ZoomManager.dezoomer.open(ZoomManager.resolveRelative(filePath, url));
-		});
-		ZoomManager.updateProgress(0, "The dezoomer is trying to locate the zoomable image...");
-	} else {
-		ZoomManager.dezoomer.open(url);
-		ZoomManager.updateProgress(0, "Launched dezoomer...");
-	}
-};
-
-/**
-@callback fileCallback
-@param {string|Document|Object} response
-@param {XMLHttpRequest} request
-*/
-
-/**
-Call callback with the contents of the page at url
-@param {string} url
-@param {type:String} options
-@param {fileCallback} callback - callback to call when the file is loaded
-*/
-ZoomManager.getFile = function (url, params, callback) {
-	var PHPSCRIPT = ZoomManager.proxy_url;
-	var type = params.type || "text";
-	var xhr = new XMLHttpRequest();
-
-	// The url we got MIGHT already have been encoded
-	// The url we give to the server MUST be encoded
-	if (url.match(/%[a-zA-Z0-9]{2}/) === null) url = encodeURI(url);
-	// We pass the URL itself as a query parameter, so we have to re-encode it
-	var codedurl = encodeURIComponent(url);
-	var requesturl = PHPSCRIPT + "?url=" + codedurl;
-	if (ZoomManager.cookies.length > 0) {
-		requesturl += "&cookies=" + encodeURIComponent(ZoomManager.cookies);
-	}
-	xhr.open("GET", requesturl, true);
-
-	xhr.onloadstart = function () {
-		ZoomManager.updateProgress(1, "Sent a request in order to get information about the image...");
-	};
-	xhr.onerror = function (e) {
-		throw new Error("Unable to connect to the proxy server " +
-										"to get the required information.\n\nXHR error:\n" + e);
-	};
-	xhr.onloadend = function () {
-		var response = xhr.response;
-		var cookie = xhr.getResponseHeader("X-Set-Cookie");
-		if (cookie) ZoomManager.cookies += cookie;
-		// Custom error message on invalid XML
-		if (type === "xml" &&
-				response.documentElement.tagName === "parsererror") {
-			return ZoomManager.error("Invalid XML:\n" + url);
-		}
-		// Custom error message on invalid JSON
-		if (type === "json" && xhr.response === null) {
-			return ZoomManager.error("Invalid JSON:\n" + url);
-		}
-		// Decode html encoded entities
-		if (type === "htmltext") {
-			response = ZoomManager.decodeHTMLentities(response);
-		}
-		callback(response, xhr);
-	};
-
-	switch(type) {
-		case "xml":
-			xhr.responseType = "document";
-			xhr.overrideMimeType("text/xml");
-			break;
-		case "json":
-			xhr.responseType = "json";
-			xhr.overrideMimeType("application/json");
-			break;
-		default:
-			xhr.responseType = "text";
-			xhr.overrideMimeType("text/plain");
-	}
-	xhr.send(null);
-};
-
-/**
-Decode HTML special characaters such as "&amp;", "&gt;", ...
-
-@function ZoomManager.decodeHTMLentities
-@param {string} str
-@return {string} decoded
-*/
-ZoomManager.decodeHTMLentities = (function (){
-	var dict = {
-		"&amp;": "&",
-		"&lt;": "<",
-		"&gt;": ">",
-		"&quot;": "\""
-	};
-	var regEx = /&(?:amp|lt|gt|quot|#(?:x[\da-f]+|\d+));/gi;
-	function replacer(entity) {
-		entity = entity.toLowerCase();
-		return dict[entity] ||
-					 String.fromCharCode(parseInt('0' + entity.slice(2,-1)));
-	}
-
-	return function decodeHTMLentities (text) {
-		return text.replace(regEx, replacer);
-	};
-})();
-
-/**
-Return the absolute path, given a relative path and a base
-
-@param {string} path - the path, such as "path/to/other/file.jpg"
-@param {string} base - the base URL, such as "http://test.com/path/to/first/file.html"
-@return {string} resolved - the resolved path, such as "http://test.com/path/to/first/path/to/other/file.jpg"
-*/
-ZoomManager.resolveRelative = function resolveRelative(path, base) {
-	// absolute URL
-	if (path.match(/\w*:\/\//)) {
-		return path;
-	}
-  // Protocol-relative URL
-	if (path.indexOf("//") === 0) {
-		var protocol = base.match(/\w+:/) || ["http:"];
-		return protocol[0] + path;
-	}
-	// Upper directory
-	if (path.indexOf("../") === 0) {
-		return resolveRelative(path.slice(3), base.replace(/\/[^\/]*$/, ''));
-	}
-	// Relative to the root
-	if (path[0] === '/') {
-		var match = base.match(/(\w*:\/\/)?[^\/]*\//) || [base];
-		return match[0] + path.slice(1);
-	}
-	//relative to the current directory
-	return base.replace(/\/[^\/]*$/, "") + '/' + path;
-};
-
-/**
-Returns the maximum zoom level, knowing the image size, the tile size, and the multiplying factor between two consecutive zoom levels
-@param {{width:number, height:number}} metadata
-@return {number} maxzoom - the maximal zoom level
-**/
-ZoomManager.findMaxZoom = function (data) {
-	//For all zoom levels:
-	//size / zoomFactor^(maxZoomLevel - zoomlevel) = numTilesAtThisZoomLevel * tileSize
-	//For the baseZoomLevel (0 for zoomify), numTilesAtThisZoomLevel=1
-	var size = Math.max(data.width, data.height);
-	return Math.ceil(Math.log(size/data.tileSize) / Math.log(data.zoomFactor)) + (data.baseZoomLevel||0);
-};
-
-ZoomManager.dezoomersList = {};
-ZoomManager.addDezoomer = function(dezoomer) {
-	ZoomManager.dezoomersList[dezoomer.name] = dezoomer;
-	UI.addDezoomer(dezoomer);
-}
-
-/**
-Set the active dezoomer
-*/
-ZoomManager.setDezoomer = function(dezoomer) {
-	ZoomManager.dezoomer = dezoomer;
-	UI.setDezoomer(dezoomer.name);
-}
-
-ZoomManager.reset = function() {
-	// This variable will store cookies set by previous requests
-	ZoomManager.setDezoomer(ZoomManager.dezoomersList["Select automatically"]);
-};
-
-/**
-Initialize the ZoomManager
-*/
-ZoomManager.init = function() {
-	// Called before open()
-	if (!ZoomManager.cookies) ZoomManager.cookies = "";
-	if (!ZoomManager.proxy_url) ZoomManager.proxy_url = "proxy.php";
-	ZoomManager.status = {
-		"error": false,
-		"loaded" : 0,
-		"totalTiles" : 1
-	};
-	UI.reset();
-};
+ZoomManager.ui = null
+ZoomManager.imageManager = null
+ZoomManager.imageLoadWithDownloader = false
+ZoomManager.downloader = null
+ZoomManager.dezoomersList = [];
+ZoomManager.status = {};

@@ -1,27 +1,36 @@
-var vls = (function() {
-  return {
-    name: 'VLS',
-    description: 'Visual Library Server, by semantics',
-    urls: [
-      /\/(thumbview|pageview|zoom)\/\d+$/
-    ],
-    contents: [],
-    findFile: function getInfoFile (baseUrl, callback) {
-      var url = baseUrl.replace(/\/(thumbview|pageview|zoom)\//, '/zoom/');
-      callback(url);
-    },
-    open: function (url) {
-      ZoomManager.getFile(url, {type: 'xml'}, function (doc, xhr) {
+"use strict";
+
+import ZoomManager from "../ZoomManager.js"
+
+export default class VLS
+{
+    constructor() {
+        this.name = 'VLS'
+        this.description = 'Visual Library Server, by semantics'
+        this.urls = [
+            /\/(thumbview|pageview|zoom)\/\d+$/
+        ]
+        
+        this.contents = []
+    }
+    
+    async findFile(baseUrl) {
+        return baseUrl.replace(/\/(thumbview|pageview|zoom)\//, '/zoom/')
+    }
+    
+    async open(url) {
+        let doc = await ZoomManager.getFile(url, {type: 'xml'})
+        
         var vars = {};
         var varNodes = doc.getElementsByTagName('var');
         for (var i = 0; i < varNodes.length; i++) {
-          vars[varNodes[i].getAttribute('id')] = varNodes[i].getAttribute('value');
+            vars[varNodes[i].getAttribute('id')] = varNodes[i].getAttribute('value');
         }
         var mapNode = doc.getElementById('map');
 
         var id = mapNode ? mapNode.getAttribute('vls:ot_id') : null;
         if (!id) {
-          throw new Error('Unable to extract image ID');
+            throw new Error('Unable to extract image ID');
         }
         var rotate = mapNode.getAttribute('vls:flip_rotate');
         var width = parseInt(mapNode.getAttribute('vls:width'));
@@ -34,17 +43,15 @@ var vls = (function() {
         height = (Math.floor((height - 1) / tileSize) + 1) * tileSize;
 
         ZoomManager.readyToRender({
-          origin: url,
-          path: path,
-          width: width,
-          height: height,
-          tileSize: tileSize,
+            origin: url,
+            path: path,
+            width: width,
+            height: height,
+            tileSize: tileSize,
         });
-      });
-    },
-    getTileURL: function (x, y, zoom, data) {
-      return [data.path, x, (data.nbrTilesY - y - 1) + '.jpg'].join('/');
-    },
-  };
-})();
-ZoomManager.addDezoomer(vls);
+    }
+
+    getTileURL(x, y, zoom, data) {
+        return [data.path, x, (data.nbrTilesY - y - 1) + '.jpg'].join('/');
+    }
+}

@@ -1,8 +1,8 @@
 "use strict";
 
-import "../ZoomManager"
+import ZoomManager from "../ZoomManager.js"
 
-class Zoomify
+export default class Zoomify
 {
     constructor() {
         this.name = 'Zoomify'
@@ -123,5 +123,4 @@ class Zoomify
     }
 }
 
-export Zoomify
 
