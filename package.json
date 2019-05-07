@@ -1,0 +1,6 @@
+{
+  "type": "module",
+  "dependencies": {
+    "xmldom": "^0.1.27"
+  }
+}
