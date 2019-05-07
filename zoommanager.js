@@ -189,6 +189,8 @@ export default class ZoomManager
         for (let i = 0; i < 5; i++) {
             try {
                 let image = null
+                
+                // TODO ZoomManager.proxy_tiles function
                 if (ZoomManager.imageLoadWithDownloader) {
                     // load from downloader
                     image = await ZoomManager.downloader.loadImage(url)
@@ -197,40 +199,17 @@ export default class ZoomManager
                     image = await ZoomManager.imageManager.loadImage(url)
                 }
                 
-                ZoomManager.imageManager.drawTile(img, x, y)
+                ZoomManager.imageManager.drawTile(image, x, y)
                 ZoomManager.status.loaded++;
-                break
+                return
             }
             catch (e) {
+                console.log(e)
                 await ZoomManager.asyncTimer(Math.pow(10*Math.random(), ntries))
             }
         }
         
         ZoomManager.error(`Unable to load tile.\nCheck that your internet connection is working and that you can access this url:\n${url}`)
-        
-        var img = new Image;
-        img.addEventListener("load", function () {
-            ZoomManager.imageManager.drawTile(img, x, y)
-            ZoomManager.status.loaded++;
-        });
-        img.addEventListener('error', function(evt) {
-            if (ntries < 5) {
-                // Maybe the server is just busy right now, or we are running on a bad connection
-                nextTime = Math.pow(10*Math.random(), ntries);
-                setTimeout(addTile, nextTime, url, x, y, ntries+1);
-            } else {
-                
-            }
-        })
-        
-        if (ZoomManager.proxy_tiles) {
-            url = `${ZoomManager.proxy_tiles}?url=${encodeURIComponent(url)}`
-            if (ZoomManager.cookies.length > 0) {
-                url = `${url}&cookies=${encodeURIComponent(ZoomManager.cookies)}`
-            }
-            img.crossOrigin = "anonymous"
-        }
-        img.src = url
     }
     
     static async asyncTimer(timeout) {
