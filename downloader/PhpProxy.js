@@ -80,6 +80,25 @@ export default class PhpProxy
         })
     }
     
+    async loadImage(url) {
+        url = `${this.proxyUrl}?url=${encodeURIComponent(url)}`
+        if (this.cookies.length > 0) {
+            url = `${url}&cookies=${encodeURIComponent(this.cookies)}`
+        }
+
+        return new Promise((resolve, reject) => {
+            let img = new Image;
+            img.addEventListener("load", function () {
+                resolve(img)
+            });
+            img.addEventListener('error', function(evt) {
+                reject(new Error('loading error'))
+            })
+            img.crossOrigin = 'anonymous'
+            img.src = url
+        })
+    }
+    
     /**
      * Decode HTML special characaters such as "&amp;", "&gt;", ...
      * 

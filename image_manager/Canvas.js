@@ -70,7 +70,6 @@ export default class Canvas
             catch (e) {
                 reject(e)
             }
-            
         })
     }
     
