@@ -19,7 +19,6 @@ export default class Automatic
                 continue
             }
             
-            
             for (let urlRegex of dezoomer.urls) {
                 if (url.match(urlRegex)) {
                     ZoomManager.setDezoomer(dezoomer);
@@ -34,7 +33,7 @@ export default class Automatic
         for (let nextUrl of urlstack) {
             let relativeNextUrl = ZoomManager.resolveRelative(nextUrl, url);
             
-            let contents = await ZoomManager.getFile(relativeNextUrl, {type:"htmltext"})
+            let contents = await ZoomManager.getFile(relativeNextUrl, {type: 'htmltext'})
             
             var iframeRegex = /<i?frame[^>]*src=["']([^"']+)/g;
             var match;
