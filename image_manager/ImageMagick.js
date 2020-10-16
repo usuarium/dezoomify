@@ -27,6 +27,7 @@ export default class ImageMagick
         let rows = y / this.data.tileSize
         let cols = x / this.data.tileSize
         let imageIndex = (rows * this.data.nbrTilesX) + cols
+        // console.log(`write tmp/tile_${imageIndex}.jpg size ${tileImg.length}`)
         fs.writeFile(`tmp/tile_${imageIndex}.jpg`, tileImg, (err) => {});
     }
     
@@ -49,8 +50,10 @@ export default class ImageMagick
                 args.push('-tile')
                 args.push(`${imagesInRow}x1`)
                 args.push(`row_${i}.jpg`)
-
-                let process = spawn('/Volumes/Data/usr/local/bin/montage', args, options)
+                
+                // console.log('montage', args)
+                
+                let process = spawn('montage', args, options)
                 
                 process.stdout.on('data', (data) => {
                     console.log(`stdout: ${data}`);
@@ -90,7 +93,7 @@ export default class ImageMagick
             args.push(`1x${numberOfRows}`)
             args.push(fullSizeTmpImageName)
             console.log(args)
-            let process = spawn('/Volumes/Data/usr/local/bin/montage', args, options)
+            let process = spawn('montage', args, options)
 
             process.stdout.on('data', (data) => {
                 console.log(`stdout: ${data}`);
@@ -122,7 +125,7 @@ export default class ImageMagick
             process.stderr.on('data', (data) => {
                 console.log(`stderr: ${data}`);
             });
-            
+
             process.on('exit', () => {
                 resolve()
             })
@@ -131,9 +134,12 @@ export default class ImageMagick
 
     async getImageBlob() {
         await this.createRows()
+        console.log('rows done')
         let imagePath = await this.mergeRows()
+        console.log('image done')
         
         await this.cleanup()
+        console.log('cleanup done')
         
         return imagePath
     }
