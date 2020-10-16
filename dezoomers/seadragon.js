@@ -12,12 +12,13 @@ export default class Seadragon
             /polona\.pl\/item\//,
             /bibliotheques-specialisees\.paris\.fr\/ark/,
             /nla\.gov\.au\/nla\.obj.*\/view$/,
+            /_files\/\d+\/\d+_\d+.jpg$/,
             /dzi$/
         ]
         
         this.contents = [
             /dziUrlTemplate/,
-            /[^"'()<>]+\.(?:xml|dzi)/i,
+            /[^"'()<>]+\.(?:dzi)/i,
             /schemas\.microsoft\.com\/deepzoom/,
             /zoom(?:\.it|hub.net)\/.*\.js/,
             /\b(dzi|DZI)\b/
@@ -48,6 +49,19 @@ export default class Seadragon
         // national library of australia
         if (baseUrl.match(/nla\.gov\.au\/nla\.obj.*\/view$/)) {
             return baseUrl.replace(/view\/?$/, "dzi")
+        }
+        
+        // A single tile URL
+        var tileMatch = baseUrl.match(/(.*)_files\/\d+\/\d+_\d+.jpg$/);
+        if (tileMatch) {
+            return callback(tileMatch[1] + ".dzi");
+        }
+        
+        let bodleianMatch = baseUrl.match(/digital\.bodleian\.ox\.ac\.uk/)
+        if (bodleianMatch) {
+            bodleianMatch = baseUrl.match(/vi\+([^,]+)/)
+            let url = `https://digital.bodleian.ox.ac.uk/inquire/Discover/GetRecordAjax?id=${bodleianMatch[1]}`
+            return url
         }
 
         let text = await ZoomManager.getFile(baseUrl, {type:"htmltext"})
@@ -85,34 +99,46 @@ export default class Seadragon
         if (dziLinkMatch) {
             return dziLinkMatch[1]
         }
-
+        
         return baseUrl
     }
     
     async open(url) {
-        let xml = await ZoomManager.getFile(url, {type:"xml"})
-        
-        var infos = xml.getElementsByTagName("Image")[0]
-        var size = xml.getElementsByTagName("Size")[0]
-        if (!infos || !size) {
-            return ZoomManager.error(`Invalid seadragon XML info file: ${url}`)
-        }
-        
         var data = {}
 
-        if (url.match(/nla\.gov\.au\/.*\/dzi/)) {
-            // national library of australia
-            data.origin = `${url}?tile=`
-        } else {
-            //replace extension by _files
-            data.origin = `${url.replace(/\.[^.\/]*$/,'')}_files/`;
-        }
-        data.tileSize = parseInt(infos.getAttribute("TileSize"));
-        data.overlap = parseInt(infos.getAttribute("Overlap"));
-        data.format = infos.getAttribute("Format");
+        if (url.match(/digital\.bodleian\.ox\.ac\.uk/)) {
+            let json = await ZoomManager.getFile(url, {type:"json"})
+            data.origin = `https://digital.bodleian.ox.ac.uk/inquire/viewer.dzi?DeepZoom=${json.SearchResults.Results[0].File}_files/`
 
-        data.width = parseInt(size.getAttribute("Width"));
-        data.height = parseInt(size.getAttribute("Height"));
+            data.tileSize = 256;
+            data.format = 'jpg';
+
+            data.width = json.SearchResults.Results[0].ImageMetadata.Width;
+            data.height = json.SearchResults.Results[0].ImageMetadata.Height;
+        }
+        else {
+            let xml = await ZoomManager.getFile(url, {type:"xml"})
+        
+            var infos = xml.getElementsByTagName("Image")[0]
+            var size = xml.getElementsByTagName("Size")[0]
+            if (!infos || !size) {
+                return ZoomManager.error(`Invalid seadragon XML info file: ${url}`)
+            }
+
+            if (url.match(/nla\.gov\.au\/.*\/dzi/)) {
+                // national library of australia
+                data.origin = `${url}?tile=`
+            } else {
+                //replace extension by _files
+                data.origin = `${url.replace(/\.[^.\/]*$/,'')}_files/`;
+            }
+            data.tileSize = parseInt(infos.getAttribute("TileSize"));
+            data.overlap = parseInt(infos.getAttribute("Overlap"));
+            data.format = infos.getAttribute("Format");
+
+            data.width = parseInt(size.getAttribute("Width"));
+            data.height = parseInt(size.getAttribute("Height"));
+        }
 
         //Zooming factor between two consecutive zoom levels
         data.zoomFactor = 2;
