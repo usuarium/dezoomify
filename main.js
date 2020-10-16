@@ -10,6 +10,7 @@ import Automatic from './dezoomers/automatic.js'
 import Zoomify from './dezoomers/zoomify.js'
 import Seadragon from './dezoomers/seadragon.js'
 import VLS from './dezoomers/vls.js'
+import iiif from './dezoomers/iiif.js'
 
 
 let cliArgs = {}
@@ -44,9 +45,10 @@ ZoomManager.imageLoadWithDownloader = true
 ZoomManager.imageManager = imageManager
 ZoomManager.downloader = downloader
 ZoomManager.addDezoomer(automatic);
-ZoomManager.addDezoomer(new Zoomify());
-ZoomManager.addDezoomer(new Seadragon());
-ZoomManager.addDezoomer(new VLS());
+// ZoomManager.addDezoomer(new Zoomify());
+ZoomManager.addDezoomer(new iiif());
+// ZoomManager.addDezoomer(new Seadragon());
+// ZoomManager.addDezoomer(new VLS());
 
 ZoomManager.setDezoomer(automatic);
 

@@ -33,7 +33,7 @@ export default class NodeHttpClient
         return new Promise((resolve, reject) => {
             let request = client.get(url, function (message) {
                 let contentSize = message.headers['content-length'] * 1
-                let buffer = Buffer.alloc(contentSize)
+                let buffer = contentSize > 0 ? Buffer.alloc(contentSize) : Buffer.alloc(1024*1024)
                 let downloadedContentSize = 0
             
                 let cookie = message.headers['set-cookie']
@@ -41,17 +41,30 @@ export default class NodeHttpClient
                     // console.log(cookie)
                 }
                 
-                // console.log(message.headers)
-            
                 message.on('data', function (data) {
                     let chunkSize = data.length
+                    // console.log("ch size", chunkSize)
                     data.copy(buffer, downloadedContentSize, 0, chunkSize)
                     downloadedContentSize += chunkSize
                 })
 
                 message.on('end', function () {
+                    if (message.statusCode !== 200) {
+                        console.error(`${message.statusCode} for url ${url}`)
+                        reject()
+                        return
+                    }
+                    
+                    // console.log("dlc size", downloadedContentSize)
                     if (params.type === 'image') {
                         resolve(buffer)
+                    }
+                    else if (params.type === 'json') {
+                        resolve(JSON.parse(buffer.toString('utf8')))
+                    }
+                    else if (params.type === 'htmltext') {
+                        let responseString = buffer.toString('utf8')
+                        resolve(responseString)
                     }
                     else {
                         let responseString = buffer.toString('utf8')
@@ -60,6 +73,9 @@ export default class NodeHttpClient
                     }
                 })
             })
+            .on('error', function(err) {
+                console.error(err)
+            });
             
             // request.setHeader('Cookie', ['type=ninja', 'language=javascript'])
         })
