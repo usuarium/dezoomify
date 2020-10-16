@@ -28,4 +28,8 @@ export default class Console
             });
         })
     }
+    
+    error(msg) {
+        console.error(`error: ${msg}`)
+    }
 }

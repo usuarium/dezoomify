@@ -62,11 +62,17 @@ export default class ZoomManager
         }
         
         if (typeof ZoomManager.dezoomer.findFile === "function") {
-            let filePath = await ZoomManager.dezoomer.findFile(url)
-            
-            ZoomManager.updateProgress(0, "Found image. Trying to open it...")
-            ZoomManager.updateProgress(0, "The dezoomer is trying to locate the zoomable image...")
-            ZoomManager.dezoomer.open(ZoomManager.resolveRelative(filePath, url))
+            try {
+                let filePath = await ZoomManager.dezoomer.findFile(url)
+
+                ZoomManager.updateProgress(0, "Found image. Trying to open it...")
+                ZoomManager.updateProgress(0, "The dezoomer is trying to locate the zoomable image...")
+                ZoomManager.dezoomer.open(ZoomManager.resolveRelative(filePath, url))
+            }
+            catch (e) {
+                console.error(`ERROR: ${e.message}`)
+                return
+            }
         } else {
             ZoomManager.updateProgress(0, "Launched dezoomer...")
             await ZoomManager.dezoomer.open(url)
@@ -126,10 +132,11 @@ export default class ZoomManager
             var loaded = ZoomManager.status.loaded, total = ZoomManager.status.totalTiles;
             if (loaded !== wasLoaded) {
                 // Update progress if new tiles were loaded
-                ZoomManager.updateProgress(100 * loaded / total, "Loading the tiles...");
+                ZoomManager.updateProgress(Math.round(100 * loaded / total), 'Loading the tiles...');
                 wasLoaded = loaded;
             }
             if (loaded >= total) {
+                console.log('fin')
                 clearInterval(timer);
                 let imageBlob = await ZoomManager.imageManager.getImageBlob()
                 ZoomManager.ui.loadEnd(imageBlob);
@@ -159,7 +166,9 @@ export default class ZoomManager
 
             x++;
             if (x >= data.nbrTilesX) {x = 0; y++;}
-            if (y < data.nbrTilesY) ZoomManager.nextTick(nextTile);
+            if (y < data.nbrTilesY) {
+                ZoomManager.nextTick(nextTile);
+            }
         }
 
         nextTile();
@@ -171,7 +180,7 @@ export default class ZoomManager
      * @param {Function} f - the function to call
      */
     static nextTick(f) {
-    	return setTimeout(f, 3)
+    	return setTimeout(f, 25)
     }
     
     /**
@@ -186,7 +195,7 @@ export default class ZoomManager
         //Request a tile from the server and display it once it loaded
         ntries = ntries | 0; // Number of time the tile has already been requested
         
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 10; i++) {
             try {
                 let image = null
                 
@@ -204,7 +213,7 @@ export default class ZoomManager
                 return
             }
             catch (e) {
-                console.log(e)
+                console.error(e)
                 await ZoomManager.asyncTimer(Math.pow(10*Math.random(), ntries))
             }
         }
